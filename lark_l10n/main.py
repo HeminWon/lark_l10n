@@ -7,7 +7,7 @@ import sys
 
 from .config_loader import load_project_config
 from .feishu_api import LarkCliError, LarkSheetsClient, build_a1_range
-from .ios_strings import dump_strings_file
+from .ios_strings import dump_strings_file, parse_strings_file
 from .sync_core import (
     build_export_payload,
     build_rows_for_existing_header,
@@ -27,6 +27,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     import_p = sub.add_parser("import", help="iOS .strings -> Lark Sheets")
     import_p.add_argument("--config", required=True, help="Path to config file (YAML)")
+
+    sort_p = sub.add_parser("sort", help="Sort iOS .strings files by key")
+    sort_p.add_argument("--config", required=True, help="Path to config file (YAML)")
 
     return p
 
@@ -200,6 +203,51 @@ def run_import(config_path: str) -> int:
     return 0
 
 
+def run_sort(config_path: str) -> int:
+    cfg = load_project_config(config_path)
+    if cfg.ios.input_dir is None:
+        raise ValueError("sort requires ios.input_dir to be set")
+
+    langs = cfg.columns.languages
+    files = []
+
+    for lang in langs:
+        candidates = cfg.mapping.get(lang, [])
+        target = None
+        for lproj in candidates:
+            path = cfg.ios.input_dir / lproj / f"{cfg.ios.table_name}.strings"
+            if path.exists():
+                target = path
+                break
+
+        if target is None:
+            files.append({"lang": lang, "file": str(cfg.ios.input_dir / (candidates[0] if candidates else f"{lang}.lproj") / f"{cfg.ios.table_name}.strings"), "status": "missing", "key_count": 0})
+            continue
+
+        pairs = parse_strings_file(target)
+        if not cfg.sync.dry_run:
+            dump_strings_file(target, pairs)
+        files.append({"lang": lang, "file": str(target), "status": "sorted", "key_count": len(pairs)})
+
+    sorted_count = sum(1 for f in files if f["status"] == "sorted")
+    missing_count = sum(1 for f in files if f["status"] == "missing")
+
+    plan = {
+        "command": "sort",
+        "config": config_path,
+        "input_dir": str(cfg.ios.input_dir),
+        "table_name": cfg.ios.table_name,
+        "dry_run": cfg.sync.dry_run,
+        "total_languages": len(langs),
+        "sorted_files_count": sorted_count,
+        "missing_files_count": missing_count,
+        "files": files,
+    }
+
+    print(json.dumps(plan, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -209,6 +257,8 @@ def main() -> int:
             return run_export(args.config)
         if args.command == "import":
             return run_import(args.config)
+        if args.command == "sort":
+            return run_sort(args.config)
         parser.print_help()
         return 2
     except (ValueError, LarkCliError) as exc:

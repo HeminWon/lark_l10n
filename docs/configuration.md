@@ -53,7 +53,7 @@ mapping:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `input_dir` | string | `import` 时读取 `.strings` 文件的项目根目录 |
+| `input_dir` | string | `import` / `sort` 时读取 `.strings` 文件的项目根目录 |
 | `output_dir` | string | `export` 时写出 `.strings` 文件的目标根目录 |
 | `table_name` | string | `.strings` 文件名（不含扩展名），默认 `Localizable` |
 
@@ -74,6 +74,8 @@ mapping:
 | `languages` | list | 需要参与同步的语言列名列表，须与飞书表格列名一致；`import` 时仅更新这些列，不会重排远端表头 |
 
 > `import` 在 `upsert` 模式下会保持远端已有列结构（列名与顺序）不变。即使配置中移除了某个语言（如 `zh_CN`），也不会删除或移动远端该列。
+
+> `sort` 命令仅依赖 `ios.input_dir`、`ios.table_name`、`columns.languages`、`mapping` 和 `sync.dry_run`，不需要飞书配置。按 key 字典序重写每个语言的单表文件，注释不保留。
 
 ### mapping
 
