@@ -10,7 +10,7 @@ from .feishu_api import LarkCliError, LarkSheetsClient, build_a1_range
 from .ios_strings import dump_strings_file
 from .sync_core import (
     build_export_payload,
-    build_rows_for_sheet,
+    build_rows_for_existing_header,
     build_sheet_rows_from_local,
     compute_import_plan,
     load_localized_strings,
@@ -94,6 +94,7 @@ def run_import(config_path: str) -> int:
     a1 = resolve_range(client, cfg.feishu.range_a1)
     remote_rows = client.read_rows(a1)
     remote_items = normalize_sheet_rows(remote_rows, key_column, langs)
+    remote_header = remote_rows[0] if remote_rows else [key_column] + langs
 
     local_values = load_localized_strings(
         input_dir=cfg.ios.input_dir,
@@ -103,7 +104,7 @@ def run_import(config_path: str) -> int:
     )
     local_items = build_sheet_rows_from_local(local_values, key_column, langs)
 
-    merged_all, updates, appends, stats = compute_import_plan(
+    _merged_all, updates, appends, stats = compute_import_plan(
         remote_items=remote_items,
         local_items=local_items,
         key_column=key_column,
@@ -112,6 +113,33 @@ def run_import(config_path: str) -> int:
         conflict=cfg.sync.conflict,
         empty_overwrite=cfg.sync.empty_overwrite,
     )
+
+    remote_map = {item[key_column]: item for item in remote_items}
+    update_details = []
+    for item in updates:
+        key = item.get(key_column, "")
+        before = remote_map.get(key, {})
+        changes: dict[str, dict[str, str]] = {}
+        for lang in langs:
+            old_v = before.get(lang, "")
+            new_v = item.get(lang, "")
+            if old_v != new_v:
+                changes[lang] = {
+                    "from": old_v,
+                    "to": new_v,
+                }
+        if changes:
+            update_details.append({
+                "key": key,
+                "changes": changes,
+            })
+
+    append_details = []
+    for item in appends:
+        append_details.append({
+            "key": item.get(key_column, ""),
+            "values": {lang: item.get(lang, "") for lang in langs},
+        })
 
     plan = {
         "command": "import",
@@ -128,17 +156,44 @@ def run_import(config_path: str) -> int:
         "conflicts": stats.conflicts,
         "append_rows": len(appends),
         "update_rows": len(updates),
+        "append_details": append_details,
+        "update_details": update_details,
     }
 
     if not cfg.sync.dry_run:
-        header = [key_column] + langs
-
         if cfg.sync.mode == "upsert" and updates:
-            write_rows = [header] + build_rows_for_sheet(merged_all, key_column, langs)
+            header_idx = {name: i for i, name in enumerate(remote_header)}
+            row_idx_by_key: dict[str, int] = {}
+            for i, row in enumerate(remote_rows[1:], start=1):
+                if key_column in header_idx:
+                    key_idx = header_idx[key_column]
+                    if key_idx < len(row):
+                        key = row[key_idx]
+                        if key and key not in row_idx_by_key:
+                            row_idx_by_key[key] = i
+
+            write_rows = [list(row) for row in remote_rows]
+            width = len(remote_header)
+            for update in updates:
+                key = update.get(key_column, "")
+                row_idx = row_idx_by_key.get(key)
+                if row_idx is None:
+                    continue
+
+                row = write_rows[row_idx]
+                if len(row) < width:
+                    row.extend([""] * (width - len(row)))
+
+                for lang in langs:
+                    col_idx = header_idx.get(lang)
+                    if col_idx is None:
+                        continue
+                    row[col_idx] = update.get(lang, "")
+
             client.write_rows(a1, write_rows)
 
         if appends:
-            append_rows = build_rows_for_sheet(appends, key_column, langs)
+            append_rows = build_rows_for_existing_header(appends, remote_header, key_column, langs)
             client.append_rows(a1, append_rows)
 
     print(json.dumps(plan, ensure_ascii=False, indent=2))

@@ -2,6 +2,8 @@
 
 ## 环境准备
 
+### 方案 1：venv（开发调试）
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -9,6 +11,28 @@ pip install -e .
 ```
 
 `-e` 以可编辑模式安装，修改源码后无需重新安装即可生效。
+
+### 方案 2：pipx（推荐，隔离干净）
+
+[pipx](https://pipx.pypa.io/) 将每个工具安装在独立的虚拟环境中，同时将命令暴露到全局 PATH，适合作为 CLI 工具使用。
+
+```bash
+# 安装 pipx（如未安装）
+brew install pipx
+pipx ensurepath
+
+# 从本地源码安装
+pipx install .
+
+# 升级（修改源码后重新安装）
+pipx reinstall lark-l10n
+```
+
+卸载：
+
+```bash
+pipx uninstall lark-l10n
+```
 
 ## 项目结构
 

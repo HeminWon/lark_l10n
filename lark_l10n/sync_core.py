@@ -157,6 +157,31 @@ def compute_import_plan(
     return merged_all, updates, appends, stats
 
 
+def build_rows_for_existing_header(
+    items: list[dict[str, str]],
+    header: list[str],
+    key_column: str,
+    langs: list[str],
+) -> list[list[str]]:
+    header_idx = {name: i for i, name in enumerate(header)}
+    if key_column not in header_idx:
+        raise ValueError(f"sheet header missing required column: {key_column}")
+
+    missing_langs = [lang for lang in langs if lang not in header_idx]
+    if missing_langs:
+        raise ValueError(f"sheet header missing language columns: {', '.join(missing_langs)}")
+
+    rows: list[list[str]] = []
+    width = len(header)
+    for item in items:
+        row = [""] * width
+        row[header_idx[key_column]] = item.get(key_column, "")
+        for lang in langs:
+            row[header_idx[lang]] = item.get(lang, "")
+        rows.append(row)
+    return rows
+
+
 def build_rows_for_sheet(items: list[dict[str, str]], key_column: str, langs: list[str]) -> list[list[str]]:
     rows: list[list[str]] = []
     for item in items:
