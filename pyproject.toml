@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lark-l10n"
+version = "0.1.0"
+description = "飞书表格与 iOS Localizable.strings 双向同步工具"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "PyYAML>=6.0",
+]
+
+[project.scripts]
+lark-l10n = "lark_l10n.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lark_l10n"]
