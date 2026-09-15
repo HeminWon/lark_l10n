@@ -1,76 +1,76 @@
-# 开发指南
+# Developer Guide
 
-## 环境准备
+## Environment Setup
 
-[uv](https://docs.astral.sh/uv/) 用于管理虚拟环境、依赖锁定和命令运行。
+[uv](https://docs.astral.sh/uv/) manages the virtual environment, dependency lockfile, and command execution.
 
 ```bash
-# 安装 uv（如未安装）
+# Install uv if needed
 brew install uv
 
-# 同步依赖并创建 .venv
+# Sync dependencies and create .venv
 uv sync
 
-# 运行 CLI
+# Run the CLI
 uv run lark-l10n --help
 ```
 
-开发时直接使用 `uv run`，源码改动会立即生效，无需重新安装：
+During development, use `uv run` directly. Source changes take effect immediately without reinstalling:
 
 ```bash
 uv run lark-l10n import --config local/config.AIBrowser.yaml
 ```
 
-如需安装为全局 CLI，可使用 uv tool：
+To install the package as a global CLI, use `uv tool`:
 
 ```bash
 uv tool install .
 lark-l10n --help
 ```
 
-卸载：
+Uninstall:
 
 ```bash
 uv tool uninstall lark-l10n
 ```
 
-## 项目结构
+## Project Structure
 
 ```
 lark_l10n/
 ├── __init__.py
-├── main.py          # CLI 入口，解析参数并分发 export/import
-├── config_loader.py # 读取并校验 YAML 配置文件
-├── constants.py     # 常量定义
-├── models.py        # 数据模型
-├── feishu_api.py    # 飞书表格读写封装
-├── ios_strings.py   # .strings 文件解析与生成
-└── sync_core.py     # 同步核心逻辑（diff、冲突处理、dry-run）
+├── main.py          # CLI entry point; parses arguments and dispatches export/import
+├── config_loader.py # Reads and validates YAML configuration files
+├── constants.py     # Constants
+├── models.py        # Data models
+├── feishu_api.py    # Lark Sheets read/write wrapper
+├── ios_strings.py   # .strings file parser and generator
+└── sync_core.py     # Core sync logic: diff, conflict handling, dry-run
 ```
 
-## 构建
+## Build
 
-项目使用 [Hatchling](https://hatch.pypa.io/) 作为构建后端，推荐通过 uv 构建：
+The project uses [Hatchling](https://hatch.pypa.io/) as the build backend. Building with uv is recommended:
 
 ```bash
 uv build
 ```
 
-产物输出到 `dist/`，包含 `.tar.gz` 源码包和 `.whl` wheel 包。
+Build artifacts are written to `dist/`, including the `.tar.gz` source distribution and `.whl` wheel package.
 
-## 发布到 PyPI
+## Publish to PyPI
 
 ```bash
 uv publish
 ```
 
-也可以继续使用 twine：
+You can also continue using twine:
 
 ```bash
 uv tool run twine upload dist/*
 ```
 
-首次发布需要 PyPI 账号及 API token，建议在 `~/.pypirc` 中配置：
+The first publish requires a PyPI account and API token. Configure them in `~/.pypirc`:
 
 ```ini
 [pypi]
@@ -78,24 +78,24 @@ username = __token__
 password = pypi-xxxxxxxx
 ```
 
-## 版本管理
+## Version Management
 
-版本号在 `pyproject.toml` 的 `project.version` 字段维护，遵循 [SemVer](https://semver.org/)。
+The version is maintained in the `project.version` field in `pyproject.toml` and follows [SemVer](https://semver.org/).
 
-发布新版本流程：
+New release process:
 
-1. 更新 `pyproject.toml` 中的 `version`
-2. 提交并打 tag：`git tag v0.x.x`
-3. 执行构建与发布
+1. Update `version` in `pyproject.toml`
+2. Commit and create a tag: `git tag v0.x.x`
+3. Build and publish
 
-## 依赖说明
+## Dependencies
 
-| 依赖 | 用途 |
-|------|------|
-| `PyYAML>=6.0` | 解析配置文件 |
-| `lark-cli` | 调用飞书 API（需单独安装并完成登录） |
+| Dependency | Purpose |
+|------------|---------|
+| `PyYAML>=6.0` | Parse configuration files |
+| `lark-cli` | Call Lark APIs; install and authenticate separately |
 
-`lark-cli` 不在 `pyproject.toml` 的依赖中声明，需用户自行安装。仓库地址：[larksuite/cli](https://github.com/larksuite/cli)。
+`lark-cli` is not declared as a dependency in `pyproject.toml`; users must install it separately. Repository: [larksuite/cli](https://github.com/larksuite/cli).
 
 ```bash
 npm install -g @larksuiteoapi/lark-cli

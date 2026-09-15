@@ -4,13 +4,13 @@ Two-way sync tool between Lark Sheets and iOS `Localizable.strings`.
 
 ## Installation
 
-推荐使用 [uv](https://docs.astral.sh/uv/) 管理环境和依赖：
+[uv](https://docs.astral.sh/uv/) is recommended for environment and dependency management:
 
 ```bash
 uv sync
 ```
 
-之后通过 `uv run` 运行 CLI：
+Then run the CLI with `uv run`:
 
 ```bash
 uv run lark-l10n --help
