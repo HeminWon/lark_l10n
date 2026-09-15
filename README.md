@@ -4,10 +4,16 @@ Two-way sync tool between Lark Sheets and iOS `Localizable.strings`.
 
 ## Installation
 
+推荐使用 [uv](https://docs.astral.sh/uv/) 管理环境和依赖：
+
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
+uv sync
+```
+
+之后通过 `uv run` 运行 CLI：
+
+```bash
+uv run lark-l10n --help
 ```
 
 ## Usage
@@ -15,19 +21,19 @@ pip install -e .
 ### Export: Lark Sheets → .strings files
 
 ```bash
-lark-l10n export --config path/to/config.yaml
+uv run lark-l10n export --config path/to/config.yaml
 ```
 
 ### Import: .strings files → Lark Sheets
 
 ```bash
-lark-l10n import --config path/to/config.yaml
+uv run lark-l10n import --config path/to/config.yaml
 ```
 
 ### Sort: sort .strings files by key
 
 ```bash
-lark-l10n sort --config path/to/config.yaml
+uv run lark-l10n sort --config path/to/config.yaml
 ```
 
 Reads each language's `<table_name>.strings` under `ios.input_dir`, sorts all keys alphabetically, and writes back in place. Set `sync.dry_run: true` to preview without writing.

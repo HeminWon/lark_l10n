@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -18,6 +21,8 @@ class SheetInfo:
 
 
 _TOKEN_RE = re.compile(r"/sheets/([a-zA-Z0-9]+)")
+_ROW_PREFIX_RE = re.compile(r"^\[row=\d+\]\s*")
+_CELL_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
 
 
 def extract_spreadsheet_token(url: str) -> str:
@@ -48,20 +53,18 @@ class LarkSheetsClient:
     def __init__(self, spreadsheet_token: str, sheet_id: str) -> None:
         self.spreadsheet_token = spreadsheet_token
         self.sheet_id = sheet_id
+        self._last_read_row_count = 0
 
     def sheet_info(self) -> SheetInfo:
         data = self._run_json([
             "lark-cli",
             "sheets",
-            "+info",
+            "+workbook-info",
             "--spreadsheet-token",
             self.spreadsheet_token,
         ])
 
-        sheets = _pick(data, ["data", "sheets", "sheets"])
-        if not isinstance(sheets, list):
-            raise LarkCliError("+info response missing sheets list")
-
+        sheets = _extract_sheets(data)
         target: dict[str, Any] | None = None
         for sheet in sheets:
             if isinstance(sheet, dict) and sheet.get("sheet_id") == self.sheet_id:
@@ -69,16 +72,16 @@ class LarkSheetsClient:
                 break
 
         if target is None:
-            raise LarkCliError(f"+info response does not contain sheet_id={self.sheet_id}")
+            raise LarkCliError(f"+workbook-info response does not contain sheet_id={self.sheet_id}")
 
-        grid = target.get("grid_properties")
-        if not isinstance(grid, dict):
-            raise LarkCliError("+info response missing grid_properties")
+        resource_type = target.get("resource_type")
+        if resource_type not in {None, "sheet"}:
+            raise LarkCliError(f"sheet_id={self.sheet_id} is not a grid sheet (resource_type={resource_type})")
 
-        row_count = grid.get("row_count")
-        col_count = grid.get("column_count")
+        row_count = target.get("row_count")
+        col_count = target.get("column_count")
         if not isinstance(row_count, int) or not isinstance(col_count, int):
-            raise LarkCliError("cannot parse row_count/column_count from +info response")
+            raise LarkCliError("cannot parse row_count/column_count from +workbook-info response")
 
         return SheetInfo(row_count=row_count, column_count=col_count)
 
@@ -86,51 +89,61 @@ class LarkSheetsClient:
         data = self._run_json([
             "lark-cli",
             "sheets",
-            "+read",
+            "+csv-get",
             "--spreadsheet-token",
             self.spreadsheet_token,
             "--sheet-id",
             self.sheet_id,
             "--range",
             a1_range,
+            "--include-row-prefix=true",
         ])
-        return _extract_values(data)
+        rows = _extract_csv_rows(data)
+        self._last_read_row_count = len(rows)
+        return rows
 
     def write_rows(self, a1_range: str, rows: list[list[str]]) -> None:
-        payload = json.dumps(rows, ensure_ascii=False)
+        payload = _rows_to_csv(rows)
         self._run_json([
             "lark-cli",
             "sheets",
-            "+write",
+            "+csv-put",
             "--spreadsheet-token",
             self.spreadsheet_token,
             "--sheet-id",
             self.sheet_id,
-            "--range",
-            a1_range,
-            "--values",
-            payload,
-        ])
+            "--start-cell",
+            _start_cell_from_range(a1_range),
+            "--csv",
+            "-",
+        ], input_text=payload)
 
     def append_rows(self, a1_range: str, rows: list[list[str]]) -> None:
-        payload = json.dumps(rows, ensure_ascii=False)
+        if not rows:
+            return
+        payload = _rows_to_csv(rows)
+        start_cell = f"{_start_col_from_range(a1_range)}{self._last_read_row_count + 1}"
         self._run_json([
             "lark-cli",
             "sheets",
-            "+append",
+            "+csv-put",
             "--spreadsheet-token",
             self.spreadsheet_token,
             "--sheet-id",
             self.sheet_id,
-            "--range",
-            a1_range,
-            "--values",
-            payload,
-        ])
+            "--start-cell",
+            start_cell,
+            "--csv",
+            "-",
+        ], input_text=payload)
 
-    def _run_json(self, cmd: list[str]) -> dict[str, Any]:
+    def _run_json(self, cmd: list[str], input_text: str | None = None) -> dict[str, Any]:
+        env = os.environ.copy()
+        env.setdefault("LARKSUITE_CLI_NO_UPDATE_NOTIFIER", "1")
+        env.setdefault("LARKSUITE_CLI_NO_SKILLS_NOTIFIER", "1")
+
         try:
-            proc = subprocess.run(cmd, text=True, capture_output=True, timeout=30)
+            proc = subprocess.run(cmd, input=input_text, text=True, capture_output=True, timeout=30, env=env)
         except subprocess.TimeoutExpired:
             raise LarkCliError(f"lark-cli timed out (30s): {' '.join(cmd)}")
         if proc.returncode != 0:
@@ -155,6 +168,69 @@ def _pick(data: dict[str, Any], path: list[str]) -> Any:
             return None
         cur = cur[key]
     return cur
+
+
+def _extract_sheets(data: dict[str, Any]) -> list[Any]:
+    sheets = _pick(data, ["data", "sheets"])
+    if isinstance(sheets, list):
+        return sheets
+
+    old_sheets = _pick(data, ["data", "sheets", "sheets"])
+    if isinstance(old_sheets, list):
+        return old_sheets
+
+    raise LarkCliError("+workbook-info response missing sheets list")
+
+
+def _extract_csv_rows(data: dict[str, Any]) -> list[list[str]]:
+    text = _pick(data, ["data", "annotated_csv"])
+    if text is None:
+        return []
+    if not isinstance(text, str):
+        raise LarkCliError("+csv-get response annotated_csv has unexpected structure")
+    return _trim_trailing_empty_rows(_csv_to_rows(text))
+
+
+def _csv_to_rows(text: str) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for row in csv.reader(io.StringIO(text)):
+        if row:
+            row[0] = _strip_row_prefix(row[0])
+        rows.append(["" if v is None else str(v) for v in row])
+    return rows
+
+
+def _rows_to_csv(rows: list[list[str]]) -> str:
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\n")
+    writer.writerows(rows)
+    return out.getvalue()
+
+
+def _strip_row_prefix(value: str) -> str:
+    return _ROW_PREFIX_RE.sub("", value, count=1)
+
+
+def _trim_trailing_empty_rows(rows: list[list[str]]) -> list[list[str]]:
+    end = len(rows)
+    while end > 0 and all(cell == "" for cell in rows[end - 1]):
+        end -= 1
+    return rows[:end]
+
+
+def _start_cell_from_range(a1_range: str) -> str:
+    start = a1_range.split(":", 1)[0].strip()
+    if not _CELL_RE.match(start):
+        raise ValueError(f"invalid A1 range: {a1_range}")
+    return start.upper()
+
+
+def _start_col_from_range(a1_range: str) -> str:
+    start = _start_cell_from_range(a1_range)
+    m = _CELL_RE.match(start)
+    if not m:
+        raise ValueError(f"invalid A1 range: {a1_range}")
+    return m.group(1).upper()
 
 
 def _extract_values(data: dict[str, Any]) -> list[list[str]]:

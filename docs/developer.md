@@ -2,36 +2,36 @@
 
 ## 环境准备
 
-### 方案 1：venv（开发调试）
+[uv](https://docs.astral.sh/uv/) 用于管理虚拟环境、依赖锁定和命令运行。
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
+# 安装 uv（如未安装）
+brew install uv
+
+# 同步依赖并创建 .venv
+uv sync
+
+# 运行 CLI
+uv run lark-l10n --help
 ```
 
-`-e` 以可编辑模式安装，修改源码后无需重新安装即可生效。
-
-### 方案 2：pipx（推荐，隔离干净）
-
-[pipx](https://pipx.pypa.io/) 将每个工具安装在独立的虚拟环境中，同时将命令暴露到全局 PATH，适合作为 CLI 工具使用。
+开发时直接使用 `uv run`，源码改动会立即生效，无需重新安装：
 
 ```bash
-# 安装 pipx（如未安装）
-brew install pipx
-pipx ensurepath
+uv run lark-l10n import --config local/config.AIBrowser.yaml
+```
 
-# 从本地源码安装
-pipx install .
+如需安装为全局 CLI，可使用 uv tool：
 
-# 升级（修改源码后重新安装）
-pipx reinstall lark-l10n
+```bash
+uv tool install .
+lark-l10n --help
 ```
 
 卸载：
 
 ```bash
-pipx uninstall lark-l10n
+uv tool uninstall lark-l10n
 ```
 
 ## 项目结构
@@ -50,11 +50,10 @@ lark_l10n/
 
 ## 构建
 
-项目使用 [Hatchling](https://hatch.pypa.io/) 作为构建后端。
+项目使用 [Hatchling](https://hatch.pypa.io/) 作为构建后端，推荐通过 uv 构建：
 
 ```bash
-pip install hatch
-hatch build
+uv build
 ```
 
 产物输出到 `dist/`，包含 `.tar.gz` 源码包和 `.whl` wheel 包。
@@ -62,8 +61,13 @@ hatch build
 ## 发布到 PyPI
 
 ```bash
-pip install twine
-twine upload dist/*
+uv publish
+```
+
+也可以继续使用 twine：
+
+```bash
+uv tool run twine upload dist/*
 ```
 
 首次发布需要 PyPI 账号及 API token，建议在 `~/.pypirc` 中配置：
