@@ -18,7 +18,7 @@ uv run lark-l10n --help
 During development, use `uv run` directly. Source changes take effect immediately without reinstalling:
 
 ```bash
-uv run lark-l10n import --config local/config.AIBrowser.yaml
+uv run lark-l10n push --config local/config.AIBrowser.yaml
 ```
 
 To install the package as a global CLI, use `uv tool`:
@@ -39,13 +39,13 @@ uv tool uninstall lark-l10n
 ```
 lark_l10n/
 ├── __init__.py
-├── main.py          # CLI entry point; parses arguments and dispatches export/import
+├── main.py          # CLI entry point; parses arguments, previews plans, confirms writes, dispatches commands
 ├── config_loader.py # Reads and validates YAML configuration files
 ├── constants.py     # Constants
 ├── models.py        # Data models
 ├── feishu_api.py    # Lark Sheets read/write wrapper
 ├── ios_strings.py   # .strings file parser and generator
-└── sync_core.py     # Core sync logic: diff, conflict handling, dry-run
+└── sync_core.py     # Core sync logic: diff and conflict handling
 ```
 
 ## Build

@@ -18,16 +18,16 @@ uv run lark-l10n --help
 
 ## Usage
 
-### Export: Lark Sheets → .strings files
+### Pull: Lark Sheets → .strings files
 
 ```bash
-uv run lark-l10n export --config path/to/config.yaml
+uv run lark-l10n pull --config path/to/config.yaml
 ```
 
-### Import: .strings files → Lark Sheets
+### Push: .strings files → Lark Sheets
 
 ```bash
-uv run lark-l10n import --config path/to/config.yaml
+uv run lark-l10n push --config path/to/config.yaml
 ```
 
 ### Sort: sort .strings files by key
@@ -36,7 +36,17 @@ uv run lark-l10n import --config path/to/config.yaml
 uv run lark-l10n sort --config path/to/config.yaml
 ```
 
-Reads each language's `<table_name>.strings` under `ios.input_dir`, sorts all keys alphabetically, and writes back in place. Set `sync.dry_run: true` to preview without writing.
+Reads each language's `<table_name>.strings` under `ios.input_dir`, sorts all keys alphabetically, and writes back in place. Unchanged files are skipped.
+
+All three commands show a summary and offer `Y` (write), `D` (details), or `N` (cancel, the default). Details of up to 20 lines appear in the terminal; longer details are saved in a temporary `.diff` file, retained after exit. Viewing details returns to the prompt. No changes means no confirmation is needed.
+
+Use `--yes` (or `-y`) to write immediately without prompting, including in scripts:
+
+```bash
+uv run lark-l10n push --config path/to/config.yaml --yes
+```
+
+Enter, EOF, or Ctrl+C at the prompt cancels. The former `--dry-run` option has been removed; use `D` then `N` to review without writing.
 
 ## Configuration
 
@@ -79,7 +89,7 @@ mapping:
     - "zh-Hans.lproj"
 ```
 
-Extra columns in the sheet (e.g. notes) don't need to be declared — they are ignored. On `import`, only the declared `languages` columns are written; all other columns are left untouched.
+Extra columns in the sheet (e.g. notes) don't need to be declared — they are ignored. On `push`, only the declared `languages` columns are written; all other columns are left untouched.
 
 ## Dependencies
 

@@ -44,7 +44,6 @@ def load_project_config(config_path: str) -> ProjectConfig:
         raise ValueError("sync.conflict must be 'sheet-first' or 'local-first'")
 
     empty_overwrite = _required_bool(sync_raw, "empty_overwrite")
-    dry_run = _required_bool(sync_raw, "dry_run")
 
     key_column = _required_str(columns_raw, "key_column")
     languages = _required_str_list(columns_raw, "languages")
@@ -79,7 +78,6 @@ def load_project_config(config_path: str) -> ProjectConfig:
             mode=mode,
             conflict=conflict,
             empty_overwrite=empty_overwrite,
-            dry_run=dry_run,
         ),
         columns=ColumnsConfig(
             key_column=key_column,

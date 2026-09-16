@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 
 from .config_loader import load_project_config
 from .feishu_api import LarkCliError, LarkSheetsClient, build_a1_range
 from .ios_strings import dump_strings_file, parse_strings_file
+from .preview import confirm_write, file_changes, import_details
 from .sync_core import (
     build_export_payload,
     build_rows_for_existing_header,
@@ -22,14 +22,19 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Lark Sheets <-> iOS Localizable.strings sync tool")
     sub = p.add_subparsers(dest="command", required=True)
 
-    export_p = sub.add_parser("export", help="Lark Sheets -> iOS .strings")
-    export_p.add_argument("--config", required=True, help="Path to config file (YAML)")
+    pull_p = sub.add_parser("pull", help="Lark Sheets -> iOS .strings")
+    pull_p.add_argument("--config", required=True, help="Path to config file (YAML)")
 
-    import_p = sub.add_parser("import", help="iOS .strings -> Lark Sheets")
-    import_p.add_argument("--config", required=True, help="Path to config file (YAML)")
+    push_p = sub.add_parser("push", help="iOS .strings -> Lark Sheets")
+    push_p.add_argument("--config", required=True, help="Path to config file (YAML)")
 
     sort_p = sub.add_parser("sort", help="Sort iOS .strings files by key")
     sort_p.add_argument("--config", required=True, help="Path to config file (YAML)")
+
+    for command_parser in (pull_p, push_p, sort_p):
+        command_parser.add_argument(
+            "--yes", "-y", action="store_true", help="Write immediately without confirmation"
+        )
 
     return p
 
@@ -41,10 +46,10 @@ def resolve_range(client: LarkSheetsClient, given_range: str | None) -> str:
     return build_a1_range(info.row_count, info.column_count)
 
 
-def run_export(config_path: str) -> int:
+def run_pull(config_path: str, yes: bool = False) -> int:
     cfg = load_project_config(config_path)
     if cfg.ios.output_dir is None:
-        raise ValueError("export requires ios.output_dir to be set")
+        raise ValueError("pull requires ios.output_dir to be set")
 
     token = cfg.feishu.spreadsheet_token
     if not token:
@@ -59,32 +64,26 @@ def run_export(config_path: str) -> int:
     items = normalize_sheet_rows(rows, key_column, langs)
     payload, stats = build_export_payload(items, key_column, langs)
 
-    plan = {
-        "command": "export",
-        "config": config_path,
-        "range": a1,
-        "total_keys": stats.total_keys,
-        "total_count_by_lang": stats.total_count_by_lang,
-        "empty_count_by_lang": stats.empty_count_by_lang,
-        "files": [],
-    }
-
+    pending_files = []
     for lang in langs:
         candidates = cfg.mapping.get(lang, [])
         lproj = candidates[0]
         out_file = cfg.ios.output_dir / lproj / f"{cfg.ios.table_name}.strings"
-        plan["files"].append(str(out_file))
-        if not cfg.sync.dry_run:
-            dump_strings_file(out_file, payload[lang])
+        pending_files.append((out_file, payload[lang]))
 
-    print(json.dumps(plan, ensure_ascii=False, indent=2))
+    pending_files, details = file_changes(pending_files)
+    summary = f"飞书 → 本地 · 写入 {len(pending_files)} 个文件 · {stats.total_keys} 个 key"
+    if confirm_write(summary, details, yes, bool(pending_files)):
+        for out_file, pairs in pending_files:
+            dump_strings_file(out_file, pairs)
+        print(f"已写入 {len(pending_files)} 个文件。")
     return 0
 
 
-def run_import(config_path: str) -> int:
+def run_push(config_path: str, yes: bool = False) -> int:
     cfg = load_project_config(config_path)
     if cfg.ios.input_dir is None:
-        raise ValueError("import requires ios.input_dir to be set")
+        raise ValueError("push requires ios.input_dir to be set")
 
     token = cfg.feishu.spreadsheet_token
     if not token:
@@ -145,13 +144,12 @@ def run_import(config_path: str) -> int:
         })
 
     plan = {
-        "command": "import",
+        "command": "push",
         "config": config_path,
         "range": a1,
         "mode": cfg.sync.mode,
         "conflict": cfg.sync.conflict,
         "empty_overwrite": cfg.sync.empty_overwrite,
-        "dry_run": cfg.sync.dry_run,
         "total_keys": stats.total_keys,
         "added": stats.added,
         "updated": stats.updated,
@@ -163,7 +161,8 @@ def run_import(config_path: str) -> int:
         "update_details": update_details,
     }
 
-    if not cfg.sync.dry_run:
+    summary = f"本地 → 飞书 · 新增 {stats.added} · 更新 {stats.updated} · 跳过 {stats.skipped}"
+    if confirm_write(summary, import_details(plan), yes, bool(updates or appends)):
         if cfg.sync.mode == "upsert" and updates:
             header_idx = {name: i for i, name in enumerate(remote_header)}
             row_idx_by_key: dict[str, int] = {}
@@ -199,17 +198,19 @@ def run_import(config_path: str) -> int:
             append_rows = build_rows_for_existing_header(appends, remote_header, key_column, langs)
             client.append_rows(a1, append_rows)
 
-    print(json.dumps(plan, ensure_ascii=False, indent=2))
+        print(f"已写入飞书：新增 {len(appends)} · 更新 {len(updates)}。")
+
     return 0
 
 
-def run_sort(config_path: str) -> int:
+def run_sort(config_path: str, yes: bool = False) -> int:
     cfg = load_project_config(config_path)
     if cfg.ios.input_dir is None:
         raise ValueError("sort requires ios.input_dir to be set")
 
     langs = cfg.columns.languages
     files = []
+    pending_files = []
 
     for lang in langs:
         candidates = cfg.mapping.get(lang, [])
@@ -225,26 +226,17 @@ def run_sort(config_path: str) -> int:
             continue
 
         pairs = parse_strings_file(target)
-        if not cfg.sync.dry_run:
-            dump_strings_file(target, pairs)
+        pending_files.append((target, pairs))
         files.append({"lang": lang, "file": str(target), "status": "sorted", "key_count": len(pairs)})
 
-    sorted_count = sum(1 for f in files if f["status"] == "sorted")
     missing_count = sum(1 for f in files if f["status"] == "missing")
 
-    plan = {
-        "command": "sort",
-        "config": config_path,
-        "input_dir": str(cfg.ios.input_dir),
-        "table_name": cfg.ios.table_name,
-        "dry_run": cfg.sync.dry_run,
-        "total_languages": len(langs),
-        "sorted_files_count": sorted_count,
-        "missing_files_count": missing_count,
-        "files": files,
-    }
-
-    print(json.dumps(plan, ensure_ascii=False, indent=2))
+    pending_files, details = file_changes(pending_files)
+    summary = f"本地排序 · 修改 {len(pending_files)} 个文件 · 缺失 {missing_count} 个文件"
+    if confirm_write(summary, details, yes, bool(pending_files)):
+        for target, pairs in pending_files:
+            dump_strings_file(target, pairs)
+        print(f"已写入 {len(pending_files)} 个文件。")
     return 0
 
 
@@ -253,15 +245,15 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        if args.command == "export":
-            return run_export(args.config)
-        if args.command == "import":
-            return run_import(args.config)
+        if args.command == "pull":
+            return run_pull(args.config, yes=args.yes)
+        if args.command == "push":
+            return run_push(args.config, yes=args.yes)
         if args.command == "sort":
-            return run_sort(args.config)
+            return run_sort(args.config, yes=args.yes)
         parser.print_help()
         return 2
-    except (ValueError, LarkCliError) as exc:
+    except (ValueError, LarkCliError, OSError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 

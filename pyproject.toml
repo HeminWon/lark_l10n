@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lark-l10n"
-version = "0.1.1"
+version = "0.1.2"
 description = "飞书表格与 iOS Localizable.strings 双向同步工具"
 readme = "README.md"
 requires-python = ">=3.10"

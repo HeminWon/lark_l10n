@@ -23,7 +23,6 @@ class SyncConfig:
     mode: str
     conflict: str
     empty_overwrite: bool
-    dry_run: bool
 
 
 @dataclass

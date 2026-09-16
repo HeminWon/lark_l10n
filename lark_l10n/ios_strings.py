@@ -59,11 +59,14 @@ def parse_strings_file(path: Path) -> dict[str, str]:
     return result
 
 
-def dump_strings_file(path: Path, pairs: dict[str, str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def render_strings(pairs: dict[str, str]) -> str:
     lines: list[str] = []
     for key in sorted(pairs.keys()):
         val = pairs[key]
         lines.append(f'"{escape_ios_string(key)}" = "{escape_ios_string(val)}";')
-    content = "\n".join(lines) + ("\n" if lines else "")
-    path.write_text(content, encoding="utf-8")
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def dump_strings_file(path: Path, pairs: dict[str, str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_strings(pairs), encoding="utf-8")
