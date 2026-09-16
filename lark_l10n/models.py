@@ -19,10 +19,11 @@ class IOSConfig:
 
 
 @dataclass
-class SyncConfig:
+class PushConfig:
     mode: str
     conflict: str
     empty_overwrite: bool
+    delete_missing: bool = False
 
 
 @dataclass
@@ -35,6 +36,6 @@ class ColumnsConfig:
 class ProjectConfig:
     feishu: FeishuConfig
     ios: IOSConfig
-    sync: SyncConfig
+    push: PushConfig
     columns: ColumnsConfig
     mapping: dict[str, list[str]]

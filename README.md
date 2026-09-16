@@ -48,9 +48,31 @@ uv run lark-l10n push --config path/to/config.yaml --yes
 
 Enter, EOF, or Ctrl+C at the prompt cancels. The former `--dry-run` option has been removed; use `D` then `N` to review without writing.
 
+On `push`, after confirmation (or with `--yes`), the original rows are backed up as UTF-8 BOM CSV under `~/.lark_l10n/backups/<spreadsheet-token>/<sheet-id>/<timestamp>.csv` before any remote write. The backup includes the header and all columns returned for the configured range. When rows will be deleted, the entire worksheet is read and backed up first. A backup failure stops the write. Cancelled or unchanged runs, `pull`, and `sort` do not create backups. The path and backed-up range are printed. Backups are retained until you delete them; they preserve cell values, not formatting or a complete formula model.
+
 ## Configuration
 
-See [docs/configuration.md](docs/configuration.md).
+Copy the annotated [config.example.yaml](config.example.yaml) template, then replace the sheet URL/ID, local paths, and language columns:
+
+```bash
+mkdir -p local
+cp -n config.example.yaml local/config.MyProject.yaml
+uv run lark-l10n push --config local/config.MyProject.yaml
+```
+
+The template disables deletion by default. See [docs/configuration.md](docs/configuration.md) for all options.
+
+Push policies now live under `push:`; rename the former `sync:` section. `pull` and `sort` do not use these policies.
+
+```yaml
+push:
+  mode: upsert
+  conflict: local-first
+  empty_overwrite: false
+  delete_missing: false
+```
+
+Set `delete_missing: true` to delete remote rows whose key is absent from every configured local language. This requires `upsert`, all configured language files to exist and parse successfully, and at least one local key. Empty translations do not mean deletion. The summary and `D` preview include deletions. Deletion removes the entire row, including notes and other language columns, so enable it only for a key range managed by this project. Writes occur after confirmation and backup; failures stop subsequent operations without automatically rolling back earlier successful steps.
 
 ### Sheet Header Alignment
 
@@ -89,7 +111,7 @@ mapping:
     - "zh-Hans.lproj"
 ```
 
-Extra columns in the sheet (e.g. notes) don't need to be declared — they are ignored. On `push`, only the declared `languages` columns are written; all other columns are left untouched.
+Extra columns in the sheet (e.g. notes) don't need to be declared — they are ignored. On `push`, only the declared `languages` columns are written; all other columns are left untouched on retained rows.
 
 ## Dependencies
 

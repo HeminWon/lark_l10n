@@ -1,0 +1,43 @@
+# 复制到 local/config.<项目名>.yaml 后，替换表格地址、工作表 ID、本地路径及语言列名。
+# pull：飞书 → 本地；push：本地 → 飞书；sort：本地按 key 排序。
+feishu:
+  url: "https://your-tenant.feishu.cn/sheets/REPLACE_TOKEN?sheet=REPLACE_SHEET_ID"
+  # 也可以删除 url，改用 spreadsheet_token: "REPLACE_TOKEN"
+  sheet_id: "REPLACE_SHEET_ID" # URL 中 sheet= 后面的值
+  range: null # 自动读取整个工作表；限定范围时如 "A1:D1000"，首行须包含表头
+
+ios:
+  # 指向直接包含 en.lproj、zh-Hans.lproj 等语言目录的文件夹。
+  # 推荐使用绝对路径；相对路径以执行命令时的目录为基准，~ 不会自动展开。
+  input_dir: "/absolute/path/to/project/Resources" # push / sort 读取
+  output_dir: "/absolute/path/to/project/Resources" # pull 写入，可与 input_dir 相同
+  table_name: "Localizable" # 不包含 .strings 后缀
+
+# 以下策略仅用于 push，不影响 pull / sort。
+push:
+  mode: "upsert" # append：只追加新 key；upsert：追加并更新已有 key
+  conflict: "local-first" # local-first：本地优先；sheet-first：保留飞书非空翻译
+  empty_overwrite: false # true：允许本地空值清空飞书已有翻译
+  delete_missing: false # true：删除本地所有参与同步语言均不存在的 key 对应整行
+  # delete_missing 仅支持 upsert。开启前确保此 key 区域仅由当前项目管理。
+  # 所有配置语言文件必须存在并可解析，且至少有一个 key，否则停止 push。
+  # 删除整行会同时移除备注、未同步语言等其他列；执行前自动备份 CSV。
+
+# 必须与飞书表头完全一致；按实际工作表增删语言。
+columns:
+  key_column: "ios_key"
+  languages:
+    - "en"
+    - "zh_CN"
+
+# 左侧为飞书语言列名，右侧为本地 .lproj 目录候选列表。
+# push / sort 取第一个存在的目录内文件；pull 写入第一个目录。
+# 未指定的语言默认使用 <语言列名>.lproj。
+mapping:
+  en:
+    - "en.lproj"
+  zh_CN:
+    - "zh-Hans.lproj"
+
+# 默认摘要 + Y 写入 / D 明细 / N 取消；--yes 跳过确认直接写入。
+# push 备份目录：~/.lark_l10n/backups/<表格 token>/<工作表 ID>/<时间戳>.csv

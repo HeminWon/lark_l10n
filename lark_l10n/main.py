@@ -4,8 +4,9 @@ from __future__ import annotations
 import argparse
 import sys
 
+from .backup import backup_sheet_rows
 from .config_loader import load_project_config
-from .feishu_api import LarkCliError, LarkSheetsClient, build_a1_range
+from .feishu_api import LarkCliError, LarkSheetsClient, build_a1_range, start_row_from_range
 from .ios_strings import dump_strings_file, parse_strings_file
 from .preview import confirm_write, file_changes, import_details
 from .sync_core import (
@@ -81,7 +82,7 @@ def run_pull(config_path: str, yes: bool = False) -> int:
 
 
 def run_push(config_path: str, yes: bool = False) -> int:
-    cfg = load_project_config(config_path)
+    cfg = load_project_config(config_path, require_push=True)
     if cfg.ios.input_dir is None:
         raise ValueError("push requires ios.input_dir to be set")
 
@@ -103,17 +104,30 @@ def run_push(config_path: str, yes: bool = False) -> int:
         langs=langs,
         table_name=cfg.ios.table_name,
         lang_to_lproj_candidates=cfg.mapping,
+        strict=cfg.push.delete_missing,
     )
     local_items = build_sheet_rows_from_local(local_values, key_column, langs)
+    delete_details = []
+    if cfg.push.delete_missing:
+        local_keys = {item[key_column] for item in local_items}
+        if not local_keys:
+            raise ValueError("push.delete_missing refused: no local keys found")
+        key_index = remote_header.index(key_column)
+        start_row = start_row_from_range(a1)
+        for index, row in enumerate(remote_rows[1:], start=1):
+            key = row[key_index].strip() if key_index < len(row) else ""
+            if key and key not in local_keys:
+                delete_details.append({"key": key, "row": start_row + index})
+
 
     _merged_all, updates, appends, stats = compute_import_plan(
         remote_items=remote_items,
         local_items=local_items,
         key_column=key_column,
         langs=langs,
-        mode=cfg.sync.mode,
-        conflict=cfg.sync.conflict,
-        empty_overwrite=cfg.sync.empty_overwrite,
+        mode=cfg.push.mode,
+        conflict=cfg.push.conflict,
+        empty_overwrite=cfg.push.empty_overwrite,
     )
 
     remote_map = {item[key_column]: item for item in remote_items}
@@ -147,9 +161,9 @@ def run_push(config_path: str, yes: bool = False) -> int:
         "command": "push",
         "config": config_path,
         "range": a1,
-        "mode": cfg.sync.mode,
-        "conflict": cfg.sync.conflict,
-        "empty_overwrite": cfg.sync.empty_overwrite,
+        "mode": cfg.push.mode,
+        "conflict": cfg.push.conflict,
+        "empty_overwrite": cfg.push.empty_overwrite,
         "total_keys": stats.total_keys,
         "added": stats.added,
         "updated": stats.updated,
@@ -159,11 +173,22 @@ def run_push(config_path: str, yes: bool = False) -> int:
         "update_rows": len(updates),
         "append_details": append_details,
         "update_details": update_details,
+        "delete_details": delete_details,
     }
 
-    summary = f"本地 → 飞书 · 新增 {stats.added} · 更新 {stats.updated} · 跳过 {stats.skipped}"
-    if confirm_write(summary, import_details(plan), yes, bool(updates or appends)):
-        if cfg.sync.mode == "upsert" and updates:
+    summary = f"本地 → 飞书 · 新增 {stats.added} · 更新 {stats.updated} · 删除 {len(delete_details)} 行 · 跳过 {stats.skipped}"
+    if confirm_write(summary, import_details(plan), yes, bool(updates or appends or delete_details)):
+        backup_rows, backup_range = remote_rows, a1
+        if delete_details:
+            # Row deletion affects every column, including columns outside the sync range.
+            backup_client = LarkSheetsClient(token, cfg.feishu.sheet_id)
+            backup_range = resolve_range(backup_client, None)
+            backup_rows = backup_client.read_rows(backup_range)
+            if not backup_rows:
+                raise ValueError("cannot delete rows: full worksheet backup returned no data")
+        backup_path = backup_sheet_rows(token, cfg.feishu.sheet_id, backup_rows)
+        print(f"飞书数据已备份：{backup_path}（范围：{backup_range}）", flush=True)
+        if cfg.push.mode == "upsert" and updates:
             header_idx = {name: i for i, name in enumerate(remote_header)}
             row_idx_by_key: dict[str, int] = {}
             for i, row in enumerate(remote_rows[1:], start=1):
@@ -198,7 +223,9 @@ def run_push(config_path: str, yes: bool = False) -> int:
             append_rows = build_rows_for_existing_header(appends, remote_header, key_column, langs)
             client.append_rows(a1, append_rows)
 
-        print(f"已写入飞书：新增 {len(appends)} · 更新 {len(updates)}。")
+        if delete_details:
+            client.delete_rows([item["row"] for item in delete_details])
+        print(f"已写入飞书：新增 {len(appends)} · 更新 {len(updates)} · 删除 {len(delete_details)} 行。")
 
     return 0
 

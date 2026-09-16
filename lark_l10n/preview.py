@@ -20,6 +20,8 @@ def import_details(plan: dict) -> str:
             lines.extend([f'@@ {json.dumps(item["key"], ensure_ascii=False)} [{lang}] @@',
                           f'- {json.dumps(change["from"], ensure_ascii=False)}',
                           f'+ {json.dumps(change["to"], ensure_ascii=False)}', ""])
+    for item in plan.get("delete_details", []):
+        lines.extend([f'@@ 删除整行 {item["row"]} @@', f'- key: {json.dumps(item["key"], ensure_ascii=False)}', ""])
     return "\n".join(lines)
 
 

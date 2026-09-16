@@ -1,5 +1,7 @@
 # 配置文件说明
 
+可直接复制仓库根目录的 [config.example.yaml](../config.example.yaml)，修改表格地址、工作表 ID、本地路径和语言列名后使用。模板默认关闭删除。当前没有自动生成配置的子命令。
+
 ## 完整示例
 
 ```yaml
@@ -13,10 +15,11 @@ ios:
   output_dir: "/path/to/output"   # pull 时写出 .strings 的根目录
   table_name: "Localizable"
 
-sync:
+push:
   mode: "upsert"        # append（仅追加新 key）| upsert（追加 + 更新）
   conflict: "local-first"  # local-first | sheet-first
   empty_overwrite: false   # 本地空值是否覆盖飞书非空值
+  delete_missing: false    # true 时删除飞书中本地已不存在的 key 对应整行
 
 columns:
   key_column: "ios_key"
@@ -56,13 +59,20 @@ mapping:
 | `output_dir` | string | `pull` 时写出 `.strings` 文件的目标根目录 |
 | `table_name` | string | `.strings` 文件名（不含扩展名），默认 `Localizable` |
 
-### sync
+### push
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `mode` | string | `upsert` | `append` 只追加新 key；`upsert` 同时更新已有 key |
 | `conflict` | string | `local-first` | 两端都有值且不同时，`local-first` 以本地为准，`sheet-first` 保留飞书值 |
 | `empty_overwrite` | bool | `false` | 本地为空时是否覆盖飞书的非空值 |
+| `delete_missing` | bool | `false` | 仅限 `upsert`：删除本地所有参与同步语言均不存在的 key 对应整行 |
+
+这组策略仅用于 `push`。旧配置请将 `sync:` 改为 `push:`，不再读取旧节；`pull` 和 `sort` 不要求提供 `push` 节。
+
+开启删除时，本地全部参与同步的语言文件必须存在并可完整解析，且至少读到一个 key，否则停止整个 push。空翻译不会被当成 key 删除，只要任一参与同步语言仍有此 key 就会保留。飞书范围内无 key 的空行不会删除。`append` 模式不可开启删除。
+
+删除以当前读取范围中的 key 为准，删除的是工作表整行（包含备注和未同步语言等其他列），只应用于由当前项目管理的 key 区域。摘要显示删除行数，`D` 列出 key 和原行号。确认后先备份，再更新、追加，最后从下往上删除，避免行号错位；执行失败即停止，已成功的步骤不会自动回滚。
 
 ### columns
 
@@ -105,3 +115,17 @@ mapping:
 ```bash
 uv run lark-l10n push --config path/to/config.yaml --yes
 ```
+
+## push 自动备份
+
+确认 `Y` 或带 `--yes` 时，先把本次读取的飞书原始数据保存为 CSV，再执行任何写入。位置固定，无需新增参数或配置：
+
+```text
+~/.lark_l10n/backups/<表格 token>/<工作表 ID>/<时间戳>.csv
+```
+
+使用 UTF-8 BOM 编码，包含表头和本次读取范围内的所有列（包括未参与同步的列），保留逗号、引号和多行文本。若配置了 `feishu.range`，通常仅备份该范围；本次有删除行时自动备份整个工作表的数据，覆盖其他列；终端会显示备份路径和范围。备份仅保存读取到的单元格数据，不保存格式、合并或完整公式信息。
+
+备份失败则停止写入；取消、无变更、`pull` 和 `sort` 不备份。文件持续保留，不自动清理。
+
+`lark-cli sheets +csv-put` 支持从 CSV 写入现有工作表，`+workbook-import` 支持将 CSV 导入为新电子表格。恢复到原表时，应使用原读取范围的左上角作为起点；CSV 写入不会自动删除备份范围之外后来新增的行，因此不等同于整表回滚。另外，CSV 导入可能自动识别数字或公式，纯文本如前导零编号应核对类型。

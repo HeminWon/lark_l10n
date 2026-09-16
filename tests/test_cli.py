@@ -25,14 +25,14 @@ class WriteConfirmationTests(unittest.TestCase):
                     config.write_text(yaml.safe_dump({
                         "feishu": {"spreadsheet_token": "test", "sheet_id": "sheet", "range": "A1:B2"},
                         "ios": {"input_dir": str(root), "output_dir": str(root / "out"), "table_name": "Localizable"},
-                        "sync": {"mode": "upsert", "conflict": "local-first", "empty_overwrite": False},
+                        "push": {"mode": "upsert", "conflict": "local-first", "empty_overwrite": False},
                         "columns": {"key_column": "key", "languages": ["en"]},
                     }))
                     argv = ["lark-l10n", command, "--config", str(config)]
                     if answer == "automatic":
                         argv.append("--yes")
                     stdout = io.StringIO()
-                    with patch("sys.argv", argv), patch("lark_l10n.main.LarkSheetsClient") as client_cls, redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+                    with patch("sys.argv", argv), patch("lark_l10n.main.LarkSheetsClient") as client_cls, redirect_stdout(stdout), redirect_stderr(io.StringIO()), patch("pathlib.Path.home", return_value=root):
                         client = client_cls.return_value
                         client.read_rows.return_value = [["key", "en"], ["a", "old"]]
 
@@ -54,6 +54,8 @@ class WriteConfirmationTests(unittest.TestCase):
                         else:
                             prompt.assert_called_once()
                         confirmed = answer in ("y", " YES ", "automatic")
+                        backups = list((root / ".lark_l10n").rglob("*.csv"))
+                        self.assertEqual(len(backups), int(command == "push" and confirmed))
                         if command == "pull":
                             self.assertEqual(output.exists(), confirmed)
                             if confirmed:

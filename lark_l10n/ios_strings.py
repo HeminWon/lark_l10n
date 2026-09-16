@@ -30,21 +30,27 @@ def unescape_ios_string(value: str) -> str:
     return "".join(out)
 
 
-def parse_strings_file(path: Path) -> dict[str, str]:
+def parse_strings_file(path: Path, *, strict: bool = False) -> dict[str, str]:
     result: dict[str, str] = {}
     if not path.exists():
+        if strict:
+            raise ValueError(f"missing local strings file: {path}")
         return result
 
     in_block_comment = False
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), start=1):
         line = raw_line.strip()
         if not line:
             continue
         if in_block_comment:
             if "*/" in line:
+                if strict and line.split("*/", 1)[1].strip():
+                    raise ValueError(f"unsupported strings syntax: {path}:{line_number}")
                 in_block_comment = False
             continue
         if line.startswith("/*"):
+            if strict and "*/" in line and line.split("*/", 1)[1].strip():
+                raise ValueError(f"unsupported strings syntax: {path}:{line_number}")
             if "*/" not in line:
                 in_block_comment = True
             continue
@@ -52,10 +58,14 @@ def parse_strings_file(path: Path) -> dict[str, str]:
             continue
         m = _STRINGS_PAIR_RE.match(line)
         if not m:
+            if strict:
+                raise ValueError(f"cannot safely parse strings file: {path}:{line_number}")
             continue
         key = unescape_ios_string(m.group(1))
         val = unescape_ios_string(m.group(2))
         result[key] = val
+    if strict and in_block_comment:
+        raise ValueError(f"unterminated comment in strings file: {path}")
     return result
 
 

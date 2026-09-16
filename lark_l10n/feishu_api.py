@@ -122,7 +122,7 @@ class LarkSheetsClient:
         if not rows:
             return
         payload = _rows_to_csv(rows)
-        start_cell = f"{_start_col_from_range(a1_range)}{self._last_read_row_count + 1}"
+        start_cell = f"{_start_col_from_range(a1_range)}{self._last_read_row_count + start_row_from_range(a1_range)}"
         self._run_json([
             "lark-cli",
             "sheets",
@@ -136,6 +136,26 @@ class LarkSheetsClient:
             "--csv",
             "-",
         ], input_text=payload)
+
+    def delete_rows(self, row_numbers: list[int]) -> None:
+        # Group adjacent rows and delete highest batches first to keep indexes stable.
+        rows = sorted(set(row_numbers))
+        if any(row < 1 for row in rows):
+            raise ValueError("row numbers must be positive")
+        groups = []
+        for row in rows:
+            if groups and row == groups[-1][1] + 1:
+                groups[-1][1] = row
+            else:
+                groups.append([row, row])
+        ranges = [f"{start}:{end}" for start, end in reversed(groups)]
+        for offset in range(0, len(ranges), 100):
+            self._run_json([
+                "lark-cli", "sheets", "+dim-delete",
+                "--spreadsheet-token", self.spreadsheet_token,
+                "--sheet-id", self.sheet_id,
+                "--ranges", json.dumps(ranges[offset:offset + 100]), "--yes",
+            ])
 
     def _run_json(self, cmd: list[str], input_text: str | None = None) -> dict[str, Any]:
         env = os.environ.copy()
@@ -246,3 +266,11 @@ def _extract_values(data: dict[str, Any]) -> list[list[str]]:
             continue
         rows.append(["" if v is None else str(v) for v in row])
     return rows
+
+
+def start_row_from_range(a1_range: str) -> int:
+    start = _start_cell_from_range(a1_range)
+    row = int(_CELL_RE.fullmatch(start).group(2))
+    if row < 1:
+        raise ValueError(f"invalid A1 range: {a1_range}")
+    return row

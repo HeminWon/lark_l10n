@@ -62,6 +62,7 @@ def load_localized_strings(
     langs: list[str],
     table_name: str,
     lang_to_lproj_candidates: dict[str, list[str]],
+    strict: bool = False,
 ) -> dict[str, dict[str, str]]:
     values_by_lang: dict[str, dict[str, str]] = {}
     for lang in langs:
@@ -69,7 +70,9 @@ def load_localized_strings(
         path = _pick_existing_strings_file(input_dir, table_name, candidates)
         if path is None and candidates:
             path = input_dir / candidates[0] / f"{table_name}.strings"
-        values_by_lang[lang] = parse_strings_file(path) if path else {}
+        if strict and path is None:
+            raise ValueError(f"missing local strings file for language: {lang}")
+        values_by_lang[lang] = parse_strings_file(path, strict=strict) if path else {}
     return values_by_lang
 
 

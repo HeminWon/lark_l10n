@@ -4,10 +4,10 @@ from pathlib import Path
 from typing import Any
 
 from .feishu_api import extract_spreadsheet_token
-from .models import ColumnsConfig, FeishuConfig, IOSConfig, ProjectConfig, SyncConfig
+from .models import ColumnsConfig, FeishuConfig, IOSConfig, ProjectConfig, PushConfig
 
 
-def load_project_config(config_path: str) -> ProjectConfig:
+def load_project_config(config_path: str, *, require_push: bool = False) -> ProjectConfig:
     path = Path(config_path)
     if not path.exists():
         raise ValueError(f"config file not found: {path}")
@@ -17,7 +17,11 @@ def load_project_config(config_path: str) -> ProjectConfig:
 
     feishu_raw = _expect_dict(data, "feishu")
     ios_raw = _expect_dict(data, "ios")
-    sync_raw = _expect_dict(data, "sync")
+    if require_push and "push" not in data:
+        raise ValueError("config requires push section; rename the old sync section to push")
+    push_raw = _expect_dict(data, "push") if require_push else {
+        "mode": "upsert", "conflict": "local-first", "empty_overwrite": False
+    }
     columns_raw = _expect_dict(data, "columns")
     mapping_raw = _optional_dict(data, "mapping")
 
@@ -35,15 +39,18 @@ def load_project_config(config_path: str) -> ProjectConfig:
     output_dir = _optional_str(ios_raw, "output_dir")
     table_name = _required_str(ios_raw, "table_name")
 
-    mode = _required_str(sync_raw, "mode")
+    mode = _required_str(push_raw, "mode")
     if mode not in {"append", "upsert"}:
-        raise ValueError("sync.mode must be 'append' or 'upsert'")
+        raise ValueError("push.mode must be 'append' or 'upsert'")
 
-    conflict = _required_str(sync_raw, "conflict")
+    conflict = _required_str(push_raw, "conflict")
     if conflict not in {"sheet-first", "local-first"}:
-        raise ValueError("sync.conflict must be 'sheet-first' or 'local-first'")
+        raise ValueError("push.conflict must be 'sheet-first' or 'local-first'")
 
-    empty_overwrite = _required_bool(sync_raw, "empty_overwrite")
+    empty_overwrite = _required_bool(push_raw, "empty_overwrite")
+    delete_missing = _required_bool({"delete_missing": push_raw.get("delete_missing", False)}, "delete_missing")
+    if delete_missing and mode != "upsert":
+        raise ValueError("push.delete_missing requires push.mode: upsert")
 
     key_column = _required_str(columns_raw, "key_column")
     languages = _required_str_list(columns_raw, "languages")
@@ -74,10 +81,11 @@ def load_project_config(config_path: str) -> ProjectConfig:
             output_dir=Path(output_dir) if output_dir else None,
             table_name=table_name,
         ),
-        sync=SyncConfig(
+        push=PushConfig(
             mode=mode,
             conflict=conflict,
             empty_overwrite=empty_overwrite,
+            delete_missing=delete_missing,
         ),
         columns=ColumnsConfig(
             key_column=key_column,
